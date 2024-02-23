@@ -28,7 +28,17 @@ import confuse
 
 config = confuse.Configuration('mousehunter-edge', __name__)
 
-s3_client = boto3.client('s3')
+IMAGE_DESTINATION = config['imageDestination'].get(None)
+IMAGE_DESTINATION_LOCAL = "LOCAL"
+LOCAL_IMAGE_SAVE_PATH = "~/mousehunter-edge-savings"
+
+s3_client = None
+if IMAGE_DESTINATION is None or IMAGE_DESTINATION == "AWSS3":
+    s3_client = boto3.client('s3')
+elif IMAGE_DESTINATION == IMAGE_DESTINATION_LOCAL:
+    pass # TODO: store locally on raspberry pi
+elif IMAGE_DESTINATION == "CUSTOM":
+    pass
 
 log_file = 'logs/imagewatcher.log'
 logging.basicConfig(filename=log_file)
@@ -194,15 +204,24 @@ class EventHandler(pyinotify.ProcessEvent):
             os.makedirs(os.path.dirname(tempFile))
         image.save(tempFile, quality=50)
 
-        s3_client.upload_file(tempFile, BUCKET, s3_object_path)
-        logger.info(f'Upload to s3 completed: {BUCKET}/{s3_object_path} size: {os.path.getsize(tempFile)}')
+        # Upload image
+        if s3_client is not None:
+            s3_client.upload_file(tempFile, BUCKET, s3_object_path)
+            logger.info(f'Upload to s3 completed: {BUCKET}/{s3_object_path} size: {os.path.getsize(tempFile)}')
+        elif IMAGE_DESTINATION == IMAGE_DESTINATION_LOCAL:
+            file_name = now.isoformat() + '.jpg'
+            image.save(f"{LOCAL_IMAGE_SAVE_PATH}/{file_name}")
         
         #remove img from /tmp
         os.remove(tempFile)
 
-        s3_client.upload_file(detection_path, BUCKET, s3_detection_log_path)
-        logger.info(f'Upload to s3 completed: {BUCKET}/{s3_detection_log_path} size: {os.path.getsize(detection_path)}') 
-        logger.info(f'Score: {score_with_pray}/{score_no_pray}')
+        # Upload status file to server
+        if s3_client is not None:
+            s3_client.upload_file(detection_path, BUCKET, s3_detection_log_path)
+            logger.info(f'Upload to s3 completed: {BUCKET}/{s3_detection_log_path} size: {os.path.getsize(detection_path)}') 
+            logger.info(f'Score: {score_with_pray}/{score_no_pray}')
+        elif IMAGE_DESTINATION == IMAGE_DESTINATION_LOCAL:
+            pass # Not required, because already in detection_path stored
 
         os.remove(event.pathname)
         
